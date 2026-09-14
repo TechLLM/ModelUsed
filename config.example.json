@@ -1,0 +1,15 @@
+{
+  "providers": [
+    "claude",
+    "codex",
+    "grok",
+    "devin",
+    "cursor",
+    "zai",
+    "minimax",
+    "openrouter",
+    "google"
+  ],
+  "page_seconds": 8,
+  "google_oauth_clients": []
+}

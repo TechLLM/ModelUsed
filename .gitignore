@@ -1,0 +1,18 @@
+# 빌드 산출물 — 소스만 배포
+ModelUsed.app/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+
+# 로컬 런타임 데이터 (절대 커밋 금지)
+*.token
+*.key
+credentials*
+auth.json
+# 실제 설정은 로컬 전용 — 리포엔 config.example.json만 포함
+config.json
