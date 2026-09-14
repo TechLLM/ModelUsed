@@ -52,6 +52,7 @@ struct CollectorOutput: Codable {
     let providers: [ProviderInfo]
     let weather: WeatherInfo?
     let news: [NewsItem]?
+    let page_seconds: Double?
 }
 
 // MARK: - 수집기 실행
@@ -82,6 +83,7 @@ final class UsageModel: ObservableObject {
     @Published var providers: [ProviderInfo] = []
     @Published var weather: WeatherInfo?
     @Published var news: [NewsItem] = []
+    @Published var pageSeconds: Double = 8
     @Published var updatedAt: Date?
     @Published var refreshing = false
     @Published var lastError: String?
@@ -116,6 +118,7 @@ final class UsageModel: ObservableObject {
                     self.providers = out.providers
                     self.weather = out.weather
                     self.news = out.news ?? []
+                    if let ps = out.page_seconds, ps >= 3 { self.pageSeconds = ps }
                     self.updatedAt = Date(timeIntervalSince1970: out.updated_epoch)
                     self.lastError = nil
                 case .failure(let err):
@@ -324,7 +327,16 @@ struct NewsRow: View {
 
 struct NewsSection: View {
     let items: [NewsItem]
+    var pageSeconds: Double = 8
+    private let perPage = 6
+    @State private var page = 0
+
     var body: some View {
+        let breaking = items.first(where: { $0.breaking == true })
+        let rest = items.filter { $0.breaking != true }
+        let pages = max(1, (rest.count + perPage - 1) / perPage)
+        let pageItems = Array(rest.dropFirst(min(page, pages - 1) * perPage).prefix(perPage))
+
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 5) {
                 Image(systemName: "newspaper.fill")
@@ -332,12 +344,28 @@ struct NewsSection: View {
                     .foregroundStyle(.secondary)
                 Text("AI 뉴스").font(.system(size: 10, weight: .semibold))
                 Spacer()
+                if pages > 1 {
+                    HStack(spacing: 3) {
+                        ForEach(0..<pages, id: \.self) { i in
+                            Circle()
+                                .fill(i == page % pages ? Color.white.opacity(0.9)
+                                                        : Color.white.opacity(0.25))
+                                .frame(width: 4, height: 4)
+                        }
+                    }
+                }
             }
             .padding(.bottom, 2)
-            ForEach(items) { NewsRow(item: $0) }
+            if let b = breaking { NewsRow(item: b) }
+            ForEach(pageItems) { NewsRow(item: $0) }
         }
         .padding(.horizontal, 7).padding(.vertical, 5)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+        .onReceive(Timer.publish(every: pageSeconds, on: .main, in: .common).autoconnect()) { _ in
+            if pages > 1 {
+                withAnimation(.easeInOut(duration: 0.25)) { page = (page + 1) % pages }
+            }
+        }
     }
 }
 
@@ -850,7 +878,7 @@ struct RootView: View {
         VStack(spacing: 6) {
             ForEach(model.providers) { ProviderCard(p: $0) }
             if !model.news.isEmpty {
-                NewsSection(items: model.news)
+                NewsSection(items: model.news, pageSeconds: model.pageSeconds)
             }
             NeuralMapView(weatherCode: model.weather?.code)
                 .frame(height: 92)

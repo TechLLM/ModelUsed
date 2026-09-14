@@ -221,7 +221,7 @@ def _scrape_all(query, th_accounts):
         (i for i in rest if not i["source"].startswith(("𝕏", "Threads"))),
         key=lambda x: x.get("ts") or 0, reverse=True)
     top = [latest]
-    while len(top) < 14 and (social or press):
+    while len(top) < 19 and (social or press):
         for pool in (social, press):
             if pool:
                 top.append(pool.pop(0))

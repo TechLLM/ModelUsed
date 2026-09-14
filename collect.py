@@ -46,6 +46,7 @@ def main():
         "providers": results,
         "weather": extras["weather"],
         "news": extras["news"],
+        "page_seconds": cfg.get("page_seconds", 8),
     }
     json.dump(out, sys.stdout, ensure_ascii=False)
     print()
