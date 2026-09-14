@@ -49,13 +49,13 @@ rm -rf ~/Applications/ModelUsed.app
 |---|---|---|
 | Claude | macOS 키체인 OAuth → anthropic.com | 5시간/7일 사용률, 리셋 시각 |
 | Codex | `~/.codex/auth.json` → chatgpt.com | 주간 + 5시간 윈도우 |
-| Grok | `~/.grok/auth.json` | 인증 상태, 모델 수 |
+| Grok | `~/.grok/auth.json` → cli-chat-proxy.grok.com | 주간 통합 풀, 제품별 breakdown, 월간 $ |
 | Devin | `~/.local/share/devin/credentials.toml` | 일간/주간 쿼터, Flex 크레딧 |
 | Cursor | `~/.opencodex/auth.json` → api2.cursor.sh | 청구 주기 사용률, 종료일 |
 | Z.ai | `~/.local/share/opencode/auth.json` | 5시간/주간 토큰, 월간 도구 호출 |
 | MiniMax | `~/.local/share/opencode/auth.json` | 모델별 5시간/주간 잔량 |
 | OpenRouter | `~/.local/share/opencode/auth.json` | 크레딧 잔액, 월간 한도 |
-| Google | `~/.gemini` OAuth (공개 gemini-cli 클라이언트) | 쿼터 (개인 계정 미지원 시 에러 카드) |
+| Google | `~/.opencodex` / `~/.gemini` OAuth → cloudcode-pa | Gemini·Claude/GPT 주간·5시간 쿼터 |
 
 ## 보안 참고 / Security Notes
 
