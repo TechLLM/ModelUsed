@@ -97,6 +97,13 @@ final class UsageModel: ObservableObject {
     @Published var weather: WeatherInfo?
     @Published var news: [NewsItem] = []
     @Published var pageSeconds: Double = 8
+    @Published var collapsed: Set<String> = Set(
+        (UserDefaults.standard.array(forKey: "collapsedProviders") as? [String]) ?? [])
+
+    func toggleCollapsed(_ id: String) {
+        if collapsed.contains(id) { collapsed.remove(id) } else { collapsed.insert(id) }
+        UserDefaults.standard.set(Array(collapsed), forKey: "collapsedProviders")
+    }
     @Published var updatedAt: Date?
     @Published var refreshing = false
     @Published var lastError: String?
@@ -249,6 +256,15 @@ struct WindowRow: View {
 
 struct ProviderCard: View {
     let p: ProviderInfo
+    var collapsed = false
+    var onToggle: (() -> Void)?
+
+    /// 접힌 상태 요약 — 최대 사용률 윈도우 한 줄
+    var topWindow: WindowInfo? {
+        p.windows.compactMap { $0.used_pct != nil ? $0 : nil }
+            .max(by: { $0.used_pct! < $1.used_pct! })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 1.5) {
             HStack(spacing: 5) {
@@ -278,7 +294,11 @@ struct ProviderCard: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                if p.status != "ok" {
+                if collapsed, let tw = topWindow {
+                    // 접힌 카드는 최대 사용률 한 줄 요약
+                    Text("\(tw.label) \(Int(tw.used_pct!))%")
+                        .font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary)
+                } else if p.status != "ok" {
                     Text(p.error ?? "조회 불가")
                         .font(.system(size: 8.5, weight: .medium)).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
@@ -286,10 +306,13 @@ struct ProviderCard: View {
                     Text(acc).font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                 }
+                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.tertiary)
             }
-            if p.status != "ok" {
-                // 에러 카드는 헤더 한 줄로 표시
-            } else {
+            .contentShape(Rectangle())
+            .onTapGesture { onToggle?() }
+            if !collapsed && p.status == "ok" {
                 ForEach(p.windows) { WindowRow(w: $0) }
                 if let b = p.billing, b.next_date == nil, let label = b.label {
                     Text(label).font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
@@ -341,7 +364,10 @@ struct NewsRow: View {
 struct NewsSection: View {
     let items: [NewsItem]
     var pageSeconds: Double = 8
-    private let perPage = 6
+    /// 접힌 프로바이더 카드 수 — 접힐수록 페이지당 뉴스 행 확장
+    var collapsedCount = 0
+    /// 카드당 약 55pt 비는 공간 ÷ 뉴스 행 16pt ≈ 3행
+    var perPage: Int { 6 + collapsedCount * 3 }
 
     var body: some View {
         let breaking = items.first(where: { $0.breaking == true })
@@ -889,9 +915,14 @@ struct RootView: View {
     /// 프로바이더 카드 + 뉴스 카드 + 신경망 맵 — 동일한 horizontal 패딩으로 좌우 열 정렬 통일
     @ViewBuilder var contentList: some View {
         VStack(spacing: 6) {
-            ForEach(model.providers) { ProviderCard(p: $0) }
+            ForEach(model.providers) { p in
+                ProviderCard(p: p, collapsed: model.collapsed.contains(p.id)) {
+                    withAnimation(.easeInOut(duration: 0.15)) { model.toggleCollapsed(p.id) }
+                }
+            }
             if !model.news.isEmpty {
-                NewsSection(items: model.news, pageSeconds: model.pageSeconds)
+                NewsSection(items: model.news, pageSeconds: model.pageSeconds,
+                            collapsedCount: model.collapsed.count)
             }
             NeuralMapView(weatherCode: model.weather?.code)
                 .frame(height: 92)
