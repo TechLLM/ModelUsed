@@ -58,9 +58,22 @@ struct CollectorOutput: Codable {
 // MARK: - 수집기 실행
 
 enum Collector {
+    /// /usr/bin/python3는 Xcode shim — 라이선스 미동의 시 실행이 막히므로
+    /// CLT 실제 바이너리와 brew 설치본을 우선 탐색한다.
+    static func pythonPath() -> String {
+        for p in ["/Library/Developer/CommandLineTools/usr/bin/python3",
+                  "/opt/homebrew/bin/python3",
+                  "/usr/local/bin/python3",
+                  "/usr/bin/python3"]
+        where FileManager.default.isExecutableFile(atPath: p) {
+            return p
+        }
+        return "/usr/bin/python3"
+    }
+
     static func run(script: URL) throws -> CollectorOutput {
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        proc.executableURL = URL(fileURLWithPath: pythonPath())
         proc.arguments = [script.path]
         proc.environment = ProcessInfo.processInfo.environment
         let pipe = Pipe()
@@ -329,43 +342,43 @@ struct NewsSection: View {
     let items: [NewsItem]
     var pageSeconds: Double = 8
     private let perPage = 6
-    @State private var page = 0
 
     var body: some View {
         let breaking = items.first(where: { $0.breaking == true })
         let rest = items.filter { $0.breaking != true }
         let pages = max(1, (rest.count + perPage - 1) / perPage)
-        let pageItems = Array(rest.dropFirst(min(page, pages - 1) * perPage).prefix(perPage))
 
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 5) {
-                Image(systemName: "newspaper.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                Text("AI 뉴스").font(.system(size: 10, weight: .semibold))
-                Spacer()
-                if pages > 1 {
-                    HStack(spacing: 3) {
-                        ForEach(0..<pages, id: \.self) { i in
-                            Circle()
-                                .fill(i == page % pages ? Color.white.opacity(0.9)
-                                                        : Color.white.opacity(0.25))
-                                .frame(width: 4, height: 4)
+        // TimelineView로 페이지를 시간 기반 순수 계산 — @State/Timer 불필요
+        TimelineView(.periodic(from: .now, by: 1)) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            let page = pages > 1 ? Int(t / max(pageSeconds, 3)) % pages : 0
+            let pageItems = Array(rest.dropFirst(page * perPage).prefix(perPage))
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 5) {
+                    Image(systemName: "newspaper.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                    Text("AI 뉴스").font(.system(size: 10, weight: .semibold))
+                    Spacer()
+                    if pages > 1 {
+                        HStack(spacing: 3) {
+                            ForEach(0..<pages, id: \.self) { i in
+                                Circle()
+                                    .fill(i == page ? Color.white.opacity(0.9)
+                                                    : Color.white.opacity(0.25))
+                                    .frame(width: 4, height: 4)
+                            }
                         }
                     }
                 }
+                .padding(.bottom, 2)
+                if let b = breaking { NewsRow(item: b) }
+                ForEach(pageItems) { NewsRow(item: $0) }
             }
-            .padding(.bottom, 2)
-            if let b = breaking { NewsRow(item: b) }
-            ForEach(pageItems) { NewsRow(item: $0) }
         }
         .padding(.horizontal, 7).padding(.vertical, 5)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
-        .onReceive(Timer.publish(every: pageSeconds, on: .main, in: .common).autoconnect()) { _ in
-            if pages > 1 {
-                withAnimation(.easeInOut(duration: 0.25)) { page = (page + 1) % pages }
-            }
-        }
     }
 }
 

@@ -7,6 +7,10 @@ APP="ModelUsed.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/collector"
 
+# Xcode 라이선스 미동의 시 xcode-select가 막히므로 CLT를 우선 사용
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Library/Developer/CommandLineTools}"
+[ -d "$DEVELOPER_DIR" ] || unset DEVELOPER_DIR
+
 swiftc -O -o "$APP/Contents/MacOS/ModelUsed" app/ModelUsed.swift \
     -target arm64-apple-macosx14.0
 
