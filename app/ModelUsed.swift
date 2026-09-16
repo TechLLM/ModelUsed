@@ -1047,15 +1047,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         model.onResize = { [weak panel, weak self] in
             guard let panel, let self else { return }
-            // 실측 콘텐츠 높이 + 헤더(~30) + 하단 여백으로 패널 높이 결정
-            let contentH = model.contentHeight > 0 ? model.contentHeight : 400
-            let newH = min(max(contentH + 36, 90), self.maxPanelHeight)
+            let vf = (panel.screen ?? NSScreen.main)?.visibleFrame
+                ?? NSRect(x: 0, y: 0, width: 800, height: 800)
+            // 패널 상단이 화면 밖이면 안으로 내림
             var f = panel.frame
-            // 높이 변화가 없으면 프레임 재설정 생략 — 갱신마다 패널이 흔들리는 깜빡임 방지
-            if abs(newH - f.size.height) < 1.5 { return }
-            let top = f.maxY
+            let top = min(f.maxY, vf.maxY - 4)
+            // 실측 콘텐츠 높이 + 헤더(~30) + 하단 여백으로 패널 높이 결정
+            // 하단이 Dock(= visibleFrame.minY) 위에서 끝나도록 가용 높이로 제한
+            let contentH = model.contentHeight > 0 ? model.contentHeight : 400
+            let avail = max(top - vf.minY - 6, 90)
+            let newH = min(max(contentH + 36, 90), avail)
+            let needsClamp = f.origin.y < vf.minY + 2 || f.maxY > vf.maxY
+            if abs(newH - f.size.height) < 1.5 && !needsClamp { return }
             f.size.height = newH
-            f.origin.y = top - newH
+            f.origin.y = max(top - newH, vf.minY + 2)
             panel.setFrame(f, display: true, animate: false)
         }
 
@@ -1068,11 +1073,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ?? (vf.maxX - 300 - 20)
             let y = UserDefaults.standard.object(forKey: "winY") as? CGFloat
                 ?? (vf.maxY - h - 12)
-            panel.setFrame(NSRect(x: x, y: y, width: 300, height: h), display: false)
+            // 저장된 위치가 Dock 뒤/화면 밖이면 visibleFrame 안으로 클램프
+            let cy = min(max(y, vf.minY + 4), max(vf.maxY - min(h, 400) - 8, vf.minY + 4))
+            let cx = min(max(x, vf.minX + 4), max(vf.maxX - 304, vf.minX + 4))
+            panel.setFrame(NSRect(x: cx, y: cy, width: 300, height: h), display: false)
         }
         NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: panel, queue: .main) { [weak panel] _ in
-                guard let f = panel?.frame else { return }
+                guard let panel else { return }
+                var f = panel.frame
+                // 드래그로 Dock 뒤/화면 밖으로 나가면 가장자리 안으로 되돌림
+                if let vf = (panel.screen ?? NSScreen.main)?.visibleFrame {
+                    let ny = min(max(f.origin.y, vf.minY + 2), vf.maxY - 40)
+                    let nx = min(max(f.origin.x, vf.minX - 296), vf.maxX - 4)
+                    if ny != f.origin.y || nx != f.origin.x {
+                        f.origin = NSPoint(x: nx, y: ny)
+                        panel.setFrame(f, display: true, animate: false)
+                    }
+                }
                 UserDefaults.standard.set(f.origin.x, forKey: "winX")
                 UserDefaults.standard.set(f.origin.y, forKey: "winY")
             }
