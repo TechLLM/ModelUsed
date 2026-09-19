@@ -49,7 +49,7 @@ struct NewsItem: Codable, Identifiable {
 struct CollectorOutput: Codable {
     let updated_at: String
     let updated_epoch: Double
-    let providers: [ProviderInfo]
+    let providers: [ProviderInfo]?
     let weather: WeatherInfo?
     let news: [NewsItem]?
     let page_seconds: Double?
@@ -71,10 +71,10 @@ enum Collector {
         return "/usr/bin/python3"
     }
 
-    static func run(script: URL) throws -> CollectorOutput {
+    static func run(script: URL, args: [String] = []) throws -> CollectorOutput {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: pythonPath())
-        proc.arguments = [script.path]
+        proc.arguments = [script.path] + args
         proc.environment = ProcessInfo.processInfo.environment
         let pipe = Pipe()
         proc.standardOutput = pipe
@@ -110,39 +110,83 @@ final class UsageModel: ObservableObject {
     @Published var contentHeight: CGFloat = 0
 
     let scriptURL: URL
-    private var timer: Timer?
+    private var usageTimer: Timer?
+    private var extrasTimer: Timer?
+    private var usageRunning = false
+    private var extrasRunning = false
     var onResize: (() -> Void)?
 
     init(scriptURL: URL) { self.scriptURL = scriptURL }
 
     func start() {
-        refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            self?.refresh()
+        // 사용량(빠른 수집 ~2초)은 30초, 뉴스/날씨(ego 스크레이프 ~20초)는 5분 주기
+        // — 느린 뉴스 수집이 사용량 갱신을 막지 않도록 트랙을 분리한다
+        refreshUsage()
+        refreshExtras()
+        usageTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            self?.refreshUsage()
+        }
+        extrasTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            self?.refreshExtras()
         }
     }
 
+    /// 수동 새로고침 버튼 — 두 트랙 모두 갱신
     func refresh() {
-        guard !refreshing else { return }
-        refreshing = true
+        refreshUsage()
+        refreshExtras()
+    }
+
+    private func updateRefreshing() {
+        refreshing = usageRunning || extrasRunning
+    }
+
+    func refreshUsage() {
+        guard !usageRunning else { return }
+        usageRunning = true
+        updateRefreshing()
         let url = scriptURL
         Task.detached(priority: .utility) { [weak self] in
             let result: Result<CollectorOutput, Error>
-            do { result = .success(try Collector.run(script: url)) }
+            do { result = .success(try Collector.run(script: url, args: ["--usage"])) }
             catch { result = .failure(error) }
             await MainActor.run {
                 guard let self else { return }
-                self.refreshing = false
+                self.usageRunning = false
+                self.updateRefreshing()
                 switch result {
                 case .success(let out):
-                    self.providers = out.providers
-                    self.weather = out.weather
-                    self.news = out.news ?? []
-                    if let ps = out.page_seconds, ps >= 3 { self.pageSeconds = ps }
+                    if let ps = out.providers { self.providers = ps }
                     self.updatedAt = Date(timeIntervalSince1970: out.updated_epoch)
                     self.lastError = nil
                 case .failure(let err):
                     self.lastError = err.localizedDescription
+                }
+                self.onResize?()
+            }
+        }
+    }
+
+    func refreshExtras() {
+        guard !extrasRunning else { return }
+        extrasRunning = true
+        updateRefreshing()
+        let url = scriptURL
+        Task.detached(priority: .utility) { [weak self] in
+            let result: Result<CollectorOutput, Error>
+            do { result = .success(try Collector.run(script: url, args: ["--extras"])) }
+            catch { result = .failure(error) }
+            await MainActor.run {
+                guard let self else { return }
+                self.extrasRunning = false
+                self.updateRefreshing()
+                switch result {
+                case .success(let out):
+                    if let w = out.weather { self.weather = w }
+                    if let n = out.news { self.news = n }
+                    if let ps = out.page_seconds, ps >= 3 { self.pageSeconds = ps }
+                case .failure:
+                    break  // 뉴스/날씨 실패는 조용히 — 다음 주기에 재시도
                 }
                 self.onResize?()
             }
