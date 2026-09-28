@@ -71,7 +71,8 @@ enum Collector {
         return "/usr/bin/python3"
     }
 
-    static func run(script: URL, args: [String] = []) throws -> CollectorOutput {
+    static func run(script: URL, args: [String] = [], timeout: TimeInterval = 60)
+        throws -> CollectorOutput {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: pythonPath())
         proc.arguments = [script.path] + args
@@ -79,9 +80,21 @@ enum Collector {
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = FileHandle.nullDevice
+        // 수집 프로세스가 hang하면 파이프가 영원히 열려 갱신 플래그가 풀리지 않는다
+        // — timeout 후 SIGTERM, 그래도 안 죽으면 SIGINT까지
+        let killer = DispatchWorkItem {
+            if proc.isRunning {
+                proc.terminate()
+                DispatchQueue.global().asyncAfter(deadline: .now() + 5) {
+                    if proc.isRunning { proc.interrupt() }
+                }
+            }
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
         try proc.run()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         proc.waitUntilExit()
+        killer.cancel()
         guard proc.terminationStatus == 0 else {
             throw NSError(domain: "collector", code: Int(proc.terminationStatus))
         }
@@ -148,7 +161,7 @@ final class UsageModel: ObservableObject {
         let url = scriptURL
         Task.detached(priority: .utility) { [weak self] in
             let result: Result<CollectorOutput, Error>
-            do { result = .success(try Collector.run(script: url, args: ["--usage"])) }
+            do { result = .success(try Collector.run(script: url, args: ["--usage"], timeout: 45)) }
             catch { result = .failure(error) }
             await MainActor.run {
                 guard let self else { return }
@@ -174,7 +187,7 @@ final class UsageModel: ObservableObject {
         let url = scriptURL
         Task.detached(priority: .utility) { [weak self] in
             let result: Result<CollectorOutput, Error>
-            do { result = .success(try Collector.run(script: url, args: ["--extras"])) }
+            do { result = .success(try Collector.run(script: url, args: ["--extras"], timeout: 180)) }
             catch { result = .failure(error) }
             await MainActor.run {
                 guard let self else { return }
@@ -1089,8 +1102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hosting = NSHostingController(rootView: root)
         panel.contentViewController = hosting
 
-        model.onResize = { [weak panel, weak self] in
-            guard let panel, let self else { return }
+        model.onResize = { [weak panel] in
+            guard let panel else { return }
             let vf = (panel.screen ?? NSScreen.main)?.visibleFrame
                 ?? NSRect(x: 0, y: 0, width: 800, height: 800)
             // 패널 상단이 화면 밖이면 안으로 내림

@@ -106,14 +106,30 @@ def _clean_text(t):
 
 def _ego_news(query, th_accounts):
     """ego lite 세션으로 X 검색 + Threads 프로필을 긁어 뉴스 아이템으로 정규화."""
+    import signal
+    import tempfile
     try:
-        proc = subprocess.run(
-            [EGO_BIN, "nodejs"], input=_ego_script(query, th_accounts).encode(),
-            capture_output=True, timeout=150)
+        # 파이프 대신 임시 파일 사용 — ego가 띄운 손자 프로세스(node/chrome)가
+        # 파이프를 물고 있으면 timeout kill 후에도 EOF가 안 와서 영구 hang한다.
+        # start_new_session으로 프로세스 그룹을 만들어 timeout 시 통째로 죽인다.
+        with tempfile.TemporaryFile() as tf:
+            proc = subprocess.Popen(
+                [EGO_BIN, "nodejs"], stdin=subprocess.PIPE,
+                stdout=tf, stderr=tf, start_new_session=True)
+            try:
+                proc.communicate(
+                    input=_ego_script(query, th_accounts).encode(), timeout=120)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except Exception:
+                    proc.kill()
+                proc.wait()
+                return []
+            tf.seek(0)
+            s = tf.read().decode("utf-8", "replace")
     except Exception:
         return []
-    # cliLog 출력은 환경에 따라 stdout 또는 stderr로 나온다 — 둘 다 스캔
-    s = proc.stdout.decode("utf-8", "replace") + "\n" + proc.stderr.decode("utf-8", "replace")
     m = re.search(r"MU_NEWS:(\{.*\})", s)
     if not m:
         return []
